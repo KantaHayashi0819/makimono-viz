@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 import re
+import socket
+import ssl
 import time
 from dataclasses import dataclass, field
 from typing import Any, Iterable
@@ -54,7 +56,12 @@ class MakimonoClient:
         self.base_url = self.base_url.rstrip("/") + "/"
         self._session = requests.Session()
         self._session.headers.update(
-            {"Accept": "application/json, text/plain, */*", "User-Agent": "makimono-viz/0.1"}
+            {
+                "Accept": "application/json, text/plain, */*",
+                # WAF 等に弾かれにくいよう、一般的なブラウザ風の UA を既定にする
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 makimono-viz/0.1",
+                "Accept-Language": "ja,en;q=0.8",
+            }
         )
         self._session.headers.update(self.extra_headers)
 
@@ -237,3 +244,67 @@ COMMON_ENDPOINTS: list[str] = [
     "dashboard.php?format=json",
     "dashboard.php?output=json",
 ]
+
+
+# ------------------------------------------------------------------ 診断
+def diagnose(base_url: str, timeout: float = 10.0) -> list[dict]:
+    """DNS → TCP → TLS → HTTP の順に接続を試し、どの段階で失敗するかを返す。"""
+    from urllib.parse import urlparse
+
+    u = urlparse(base_url if "://" in base_url else "https://" + base_url)
+    host = u.hostname or ""
+    port = u.port or (443 if u.scheme == "https" else 80)
+    steps: list[dict] = []
+
+    def rec(step: str, ok: bool, detail: str, ms: int) -> None:
+        steps.append({"段階": step, "結果": "OK" if ok else "NG", "詳細": detail, "ms": ms})
+
+    # DNS
+    t0 = time.perf_counter()
+    try:
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+        ips = sorted({i[4][0] for i in infos})
+        rec("DNS 解決", True, ", ".join(ips), int((time.perf_counter() - t0) * 1000))
+    except OSError as exc:
+        rec("DNS 解決", False, str(exc), int((time.perf_counter() - t0) * 1000))
+        return steps
+
+    # TCP
+    t0 = time.perf_counter()
+    try:
+        sock = socket.create_connection((host, port), timeout=timeout)
+        rec("TCP 接続", True, f"{host}:{port}", int((time.perf_counter() - t0) * 1000))
+    except OSError as exc:
+        rec("TCP 接続", False, str(exc), int((time.perf_counter() - t0) * 1000))
+        return steps
+
+    # TLS
+    if u.scheme == "https":
+        t0 = time.perf_counter()
+        try:
+            ctx = ssl.create_default_context()
+            tls = ctx.wrap_socket(sock, server_hostname=host)
+            cert = tls.getpeercert() or {}
+            subj = dict(x[0] for x in cert.get("subject", ())) if cert else {}
+            rec("TLS ハンドシェイク", True, f"{tls.version()} / CN={subj.get('commonName', '?')} / 有効期限 {cert.get('notAfter', '?')}", int((time.perf_counter() - t0) * 1000))
+            tls.close()
+        except (ssl.SSLError, OSError) as exc:
+            rec("TLS ハンドシェイク", False, f"{type(exc).__name__}: {exc}", int((time.perf_counter() - t0) * 1000))
+            try:
+                sock.close()
+            except OSError:
+                pass
+            return steps
+    else:
+        sock.close()
+
+    # HTTP
+    for ua_label, ua in (("ブラウザ風 UA", None), ("UA なし", "")):
+        t0 = time.perf_counter()
+        try:
+            headers = {} if ua is None else {"User-Agent": ua}
+            r = requests.get(base_url.rstrip("/") + "/", headers=headers, timeout=timeout, allow_redirects=True)
+            rec(f"HTTP GET / ({ua_label})", True, f"HTTP {r.status_code} / {r.headers.get('Server', '')} / {r.headers.get('Content-Type', '')[:40]} / 最終URL {r.url}", int((time.perf_counter() - t0) * 1000))
+        except requests.RequestException as exc:
+            rec(f"HTTP GET / ({ua_label})", False, str(exc)[:200], int((time.perf_counter() - t0) * 1000))
+    return steps

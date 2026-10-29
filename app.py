@@ -15,7 +15,7 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from makimono import charts
-from makimono.api_client import COMMON_ENDPOINTS, MakimonoClient
+from makimono.api_client import COMMON_ENDPOINTS, MakimonoClient, diagnose
 from makimono.data_utils import (
     coerce_types,
     column_roles,
@@ -172,6 +172,27 @@ with st.sidebar:
                     st.success(f"{len(df)} 行 × {df.shape[1]} 列")
                 with st.popover("生 JSON を見る"):
                     st.json(raw if len(json.dumps(raw, default=str)) < 200_000 else {"note": "大きすぎるため先頭のみ", "head": str(raw)[:5000]}, expanded=False)
+
+        with st.expander("🩺 接続診断", expanded=False):
+            st.caption("「Connection reset」や「timeout」が出るときに、DNS → TCP → TLS → HTTP のどこで止まるかを調べます。")
+            if st.button("診断を実行", use_container_width=True):
+                with st.spinner("診断中…"):
+                    steps = diagnose(base_url)
+                st.dataframe(pd.DataFrame(steps), use_container_width=True, hide_index=True)
+                ng = [s_ for s_ in steps if s_["結果"] == "NG"]
+                if not ng:
+                    st.success("サーバーまで到達できています。API キーやエンドポイントの指定を見直してください。")
+                elif ng[0]["段階"] == "DNS 解決":
+                    st.error("ホスト名を解決できません。URL のつづりを確認してください。")
+                elif ng[0]["段階"] in ("TCP 接続", "TLS ハンドシェイク"):
+                    st.error(
+                        "サーバーが接続を拒否しています。このアプリの稼働場所（クラウドの IP）からのアクセスが、"
+                        "サーバー側のファイアウォールや IP 制限で遮断されている可能性が高いです。"
+                        "スマートフォンのモバイル回線など、研究室外のネットワークから Makimono を開けるか確認してください。"
+                        "開けない場合は学内限定の公開設定なので、PC 上で run.sh から起動するか、管理者に許可 IP の追加を依頼してください。"
+                    )
+                else:
+                    st.warning("TLS までは成功しています。HTTP 層で拒否されている場合は、User-Agent や WAF の設定が原因かもしれません。")
 
         with st.expander("🔍 エンドポイント探索", expanded=False):
             st.caption("API 仕様が不明なときに、よくあるパスへ一括アクセスして応答を調べます。")
