@@ -29,6 +29,19 @@ from makimono.data_utils import (
 
 load_dotenv()
 
+
+def _cfg(key: str, default: str = "") -> str:
+    """設定値を .env / 環境変数 / Streamlit Cloud の Secrets の順に探す。"""
+    val = os.getenv(key)
+    if val:
+        return val
+    try:
+        if key in st.secrets:
+            return str(st.secrets[key])
+    except Exception:  # noqa: BLE001  secrets.toml が無い環境
+        pass
+    return default
+
 st.set_page_config(page_title="Makimono データ分析", page_icon="🧪", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown(
@@ -72,16 +85,16 @@ with st.sidebar:
     # ---------------------------------------------------------- API source
     if source == "Makimono API":
         with st.expander("接続設定", expanded=True):
-            base_url = st.text_input("ベース URL", os.getenv("MAKIMONO_BASE_URL", "https://makimono.elab.one"))
-            api_key = st.text_input("API キー", os.getenv("MAKIMONO_API_KEY", ""), type="password")
+            base_url = st.text_input("ベース URL", _cfg("MAKIMONO_BASE_URL", "https://makimono.elab.one"))
+            api_key = st.text_input("API キー", _cfg("MAKIMONO_API_KEY", ""), type="password")
             auth_mode = st.selectbox(
                 "認証方式",
                 ["header", "bearer", "query", "none"],
-                index=["header", "bearer", "query", "none"].index(os.getenv("MAKIMONO_AUTH_MODE", "header")),
+                index=["header", "bearer", "query", "none"].index(_cfg("MAKIMONO_AUTH_MODE", "header")),
                 help="header: 任意ヘッダにキーを載せる / bearer: Authorization: Bearer / query: URL パラメータ",
             )
-            header_name = st.text_input("ヘッダ名", os.getenv("MAKIMONO_AUTH_HEADER", "X-API-Key"), disabled=auth_mode != "header")
-            param_name = st.text_input("パラメータ名", os.getenv("MAKIMONO_AUTH_PARAM", "api_key"), disabled=auth_mode != "query")
+            header_name = st.text_input("ヘッダ名", _cfg("MAKIMONO_AUTH_HEADER", "X-API-Key"), disabled=auth_mode != "header")
+            param_name = st.text_input("パラメータ名", _cfg("MAKIMONO_AUTH_PARAM", "api_key"), disabled=auth_mode != "query")
             verify_ssl = st.checkbox("SSL 証明書を検証", value=True)
 
         client = MakimonoClient(
@@ -94,7 +107,7 @@ with st.sidebar:
         )
 
         with st.expander("データ取得", expanded=True):
-            endpoint = st.text_input("エンドポイント", os.getenv("MAKIMONO_ENDPOINT", "/api.php"), help="ベース URL からの相対パス、または完全な URL")
+            endpoint = st.text_input("エンドポイント", _cfg("MAKIMONO_ENDPOINT", "/api.php"), help="ベース URL からの相対パス、または完全な URL")
             method = st.selectbox("メソッド", ["GET", "POST"], index=0)
             params_text = st.text_area("クエリ / ボディ (JSON)", "{}", height=70, help='例: {"action": "list", "limit": 100}')
             paginate = st.checkbox("ページネーションを辿る", value=False)

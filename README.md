@@ -82,3 +82,22 @@ discover_api.py         API 仕様探索スクリプト
 sample_data/            動作確認用の合成データと生成スクリプト
 tests/                  pytest（python -m pytest tests）
 ```
+
+## Web アプリとして公開する（Streamlit Community Cloud）
+
+1. https://share.streamlit.io にアクセスし、GitHub アカウントでサインインする
+2. 「Create app」→「Deploy a public app from GitHub」を選ぶ
+3. Repository に `KantaHayashi0819/makimono-viz`、Branch に `main`、Main file path に `app.py` を指定する
+4. 「Advanced settings」を開き、Secrets に次を貼り付ける（API キーは自分のものに置き換える）
+
+   ```toml
+   MAKIMONO_BASE_URL = "https://makimono.elab.one"
+   MAKIMONO_API_KEY = "ここにAPIキー"
+   MAKIMONO_AUTH_MODE = "header"
+   MAKIMONO_AUTH_HEADER = "X-API-Key"
+   ```
+
+5. 「Deploy」を押す。数分で `https://<アプリ名>.streamlit.app` の URL が発行される
+
+アプリは `.env` → 環境変数 → Streamlit の Secrets の順に設定を読みます。
+公開 URL は誰でも開けるので、研究室内だけで使う場合はアプリ設定の「Sharing」で閲覧者を制限してください。
