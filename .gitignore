@@ -1,0 +1,6 @@
+.env
+__pycache__/
+*.pyc
+discovery_report.json
+discovery_raw/
+.streamlit/secrets.toml
